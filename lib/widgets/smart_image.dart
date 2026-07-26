@@ -56,6 +56,7 @@ class _SmartImageState extends ConsumerState<SmartImage> {
   int _loadGeneration = 0;
   Uint8List? _decodedImageSource;
   Future<ui.Image>? _decodedImageFuture;
+  bool _hasNotifiedImageLoaded = false;
 
   @override
   void initState() {
@@ -70,12 +71,14 @@ class _SmartImageState extends ConsumerState<SmartImage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.url != widget.url ||
         oldWidget.useCache != widget.useCache ||
-        oldWidget.isCropped != widget.isCropped) {
+        oldWidget.isCropped != widget.isCropped ||
+        oldWidget.horizontalCrop != widget.horizontalCrop) {
       _isLoading = true;
       _imageData = null;
       _error = null;
       _decodedImageSource = null;
       _decodedImageFuture = null;
+      _hasNotifiedImageLoaded = false;
       _imageKey = UniqueKey(); // 更换 key，强制重建
       _loadImage();
     }
@@ -159,6 +162,7 @@ class _SmartImageState extends ConsumerState<SmartImage> {
               _imageData = imageData;
               _isLoading = false;
             });
+            await _notifyImageLoaded(imageData);
           }
           return;
         } catch (_) {}
@@ -210,6 +214,7 @@ class _SmartImageState extends ConsumerState<SmartImage> {
           isCropped: isCropped,
         );
       }
+      await _notifyImageLoaded(imageData);
     } catch (e) {
       if (_isCurrentLoad(generation, url)) {
         _error = e.toString();
@@ -327,11 +332,36 @@ class _SmartImageState extends ConsumerState<SmartImage> {
     return _decodedImageFuture!;
   }
 
+  Future<void> _notifyImageLoaded(Uint8List imageData) async {
+    if (widget.onImageLoaded == null || _hasNotifiedImageLoaded) {
+      return;
+    }
+
+    try {
+      final image = await _decodeImageOnce(imageData);
+      if (!mounted ||
+          !identical(_imageData, imageData) ||
+          _hasNotifiedImageLoaded) {
+        return;
+      }
+
+      _hasNotifiedImageLoaded = true;
+      widget.onImageLoaded!(
+        image.width.toDouble(),
+        image.height.toDouble(),
+      );
+    } catch (_) {
+      // Dimension reporting is optional once image loading has succeeded.
+    }
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     // 监听图片加载完成事件
-    if (_imageData != null && widget.onImageLoaded != null) {
+    if (_imageData != null &&
+        widget.onImageLoaded != null &&
+        !_hasNotifiedImageLoaded) {
       final imageProvider = MemoryImage(_imageData!);
       final imageStream =
           imageProvider.resolve(createLocalImageConfiguration(context));

@@ -46,15 +46,20 @@ class _MovieDetailScreenState extends ConsumerState<MovieDetailScreen> {
   List<Movie> _relatedMovies = const [];
   String? _copiedMagnet;
   bool _magnetsExpanded = false; // 磁力链接默认收起
+  double? _horizontalCoverAspectRatio;
 
   /// 获取可用于横向裁剪的封面 URL（优先使用原始封面）
   String? _getHorizontalCoverUrl() {
-    final backdropUrl = _movie.backdropUrl?.trim();
+    return _getHorizontalCoverUrlFor(_movie);
+  }
+
+  String? _getHorizontalCoverUrlFor(Movie movie) {
+    final backdropUrl = movie.backdropUrl?.trim();
     if (backdropUrl != null && backdropUrl.isNotEmpty) {
       return backdropUrl;
     }
 
-    final samples = _movie.samples ?? const <SampleInfo>[];
+    final samples = movie.samples ?? const <SampleInfo>[];
     for (final sample in samples) {
       final src = sample.src.trim();
       if (src.isNotEmpty) return src;
@@ -63,18 +68,51 @@ class _MovieDetailScreenState extends ConsumerState<MovieDetailScreen> {
       if (thumbnail.isNotEmpty) return thumbnail;
     }
 
-    final originalCoverUrl = _movie.originalCoverUrl?.trim();
+    final originalCoverUrl = movie.originalCoverUrl?.trim();
     if (originalCoverUrl != null && originalCoverUrl.isNotEmpty) {
       return originalCoverUrl;
     }
 
-    final coverUrl = _movie.coverUrl?.trim();
+    final coverUrl = movie.coverUrl?.trim();
     return coverUrl != null && coverUrl.isNotEmpty ? coverUrl : null;
   }
 
+  String? _getPosterCoverUrl() {
+    final coverUrl = _movie.coverUrl?.trim();
+    if (coverUrl != null && coverUrl.isNotEmpty) {
+      return coverUrl;
+    }
+
+    final originalCoverUrl = _movie.originalCoverUrl?.trim();
+    return originalCoverUrl != null && originalCoverUrl.isNotEmpty
+        ? originalCoverUrl
+        : null;
+  }
+
   double _posterPreviewHeight(BuildContext context) {
-    final viewportHeight = MediaQuery.of(context).size.height;
-    return (viewportHeight * 0.52).clamp(360.0, 560.0).toDouble();
+    final viewportWidth = MediaQuery.of(context).size.width;
+    final aspectRatio = _horizontalCoverAspectRatio ?? 16 / 9;
+    return viewportWidth / (aspectRatio > 0 ? aspectRatio : 16 / 9);
+  }
+
+  void _handleHorizontalCoverLoaded(double width, double height) {
+    if (!mounted || width <= 0 || height <= 0) return;
+
+    final aspectRatio = width / height;
+    if ((aspectRatio - (_horizontalCoverAspectRatio ?? 0)).abs() < 0.01) {
+      return;
+    }
+
+    setState(() {
+      _horizontalCoverAspectRatio = aspectRatio;
+    });
+  }
+
+  void _resetHorizontalCoverAspectRatioIfChanged(Movie movie) {
+    if (_getHorizontalCoverUrlFor(movie) == _getHorizontalCoverUrl()) {
+      return;
+    }
+    _horizontalCoverAspectRatio = null;
   }
 
   Movie _mergeMetadataFields(Movie latestMovie, Movie editedMovie) {
@@ -143,6 +181,7 @@ class _MovieDetailScreenState extends ConsumerState<MovieDetailScreen> {
     final currentVideoPath = _selectedVideoPath;
     final hasCurrentVideo = currentVideoPath != null &&
         latestMovie.videoFilePaths?.contains(currentVideoPath) == true;
+    _resetHorizontalCoverAspectRatioIfChanged(latestMovie);
     _movie = latestMovie;
     _selectedVideoPath = hasCurrentVideo
         ? currentVideoPath
@@ -151,6 +190,7 @@ class _MovieDetailScreenState extends ConsumerState<MovieDetailScreen> {
   }
 
   void _setCurrentMovie(Movie movie) {
+    _resetHorizontalCoverAspectRatioIfChanged(movie);
     final currentVideoPath = _selectedVideoPath;
     _selectedVideoPath =
         movie.videoFilePaths?.contains(currentVideoPath) == true
@@ -817,13 +857,12 @@ class _MovieDetailScreenState extends ConsumerState<MovieDetailScreen> {
             fit: StackFit.expand,
             children: [
               if (horizontalCoverUrl != null && horizontalCoverUrl.isNotEmpty)
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                Positioned.fill(
                   child: SmartImage(
                     url: horizontalCoverUrl,
-                    fit: BoxFit.contain,
+                    fit: BoxFit.cover,
                     cacheCategory: CacheCategory.covers,
+                    onImageLoaded: _handleHorizontalCoverLoaded,
                     errorWidget: _buildPlaceholderCover(),
                   ),
                 )
@@ -911,7 +950,7 @@ class _MovieDetailScreenState extends ConsumerState<MovieDetailScreen> {
   }
 
   Widget _buildTitleSection() {
-    final horizontalCoverUrl = _getHorizontalCoverUrl();
+    final posterCoverUrl = _getPosterCoverUrl();
     final hasLocalVideo =
         _movie.videoFilePaths != null && _movie.videoFilePaths!.isNotEmpty;
     final meta = <String>[
@@ -926,15 +965,16 @@ class _MovieDetailScreenState extends ConsumerState<MovieDetailScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
-          width: 220,
-          height: 124,
+          width: 132,
+          height: 198,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: horizontalCoverUrl != null && horizontalCoverUrl.isNotEmpty
+            child: posterCoverUrl != null && posterCoverUrl.isNotEmpty
                 ? SmartImage(
-                    url: horizontalCoverUrl,
+                    url: posterCoverUrl,
                     fit: BoxFit.contain,
                     cacheCategory: CacheCategory.covers,
+                    isCropped: _movie.safeIsCoverCropped,
                     errorWidget: _buildPlaceholderCover(),
                   )
                 : _buildPlaceholderCover(),
