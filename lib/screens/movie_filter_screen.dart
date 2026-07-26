@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/movie.dart';
 import '../providers/movie_providers.dart';
+import '../providers/tmdb_provider.dart';
 import '../services/database_service.dart';
+import '../services/tmdb_api_service.dart';
 import '../widgets/movie_card.dart';
 import 'movie_detail_screen.dart';
 import 'tmdb_search_screen.dart';
@@ -69,6 +71,7 @@ class _MovieFilterScreenState extends ConsumerState<MovieFilterScreen> {
               MaterialPageRoute(
                 builder: (_) => TmdbSearchScreen(
                   initialKeyword: widget.filterValue,
+                  initialFilter: _tmdbMovieListFilter,
                 ),
               ),
             ),
@@ -157,6 +160,43 @@ class _MovieFilterScreenState extends ConsumerState<MovieFilterScreen> {
         return '系列: ${widget.filterValue}';
       case MovieFilterType.customTag:
         return '自定义标签: ${widget.filterValue}';
+    }
+  }
+
+  TmdbMovieListFilter? get _tmdbMovieListFilter {
+    final id = widget.filterId?.trim();
+    if (id == null || id.isEmpty) {
+      return null;
+    }
+
+    final type = _tmdbFilterType;
+    if (type == null) {
+      return null;
+    }
+
+    return TmdbMovieListFilter(
+      type: type,
+      id: id,
+      label: widget.filterValue,
+    );
+  }
+
+  TmdbFilterType? get _tmdbFilterType {
+    switch (widget.filterType) {
+      case MovieFilterType.cast:
+        return TmdbFilterType.cast;
+      case MovieFilterType.tag:
+        return TmdbFilterType.genre;
+      case MovieFilterType.director:
+        return TmdbFilterType.director;
+      case MovieFilterType.producer:
+        return TmdbFilterType.producer;
+      case MovieFilterType.publisher:
+        return TmdbFilterType.company;
+      case MovieFilterType.series:
+        return TmdbFilterType.collection;
+      case MovieFilterType.customTag:
+        return null;
     }
   }
 

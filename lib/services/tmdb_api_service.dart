@@ -6,7 +6,9 @@ import 'package:flutter/foundation.dart';
 
 import '../models/tmdb_models.dart';
 
-enum TmdbFilterType { genre, director, company, collection }
+enum TmdbFilterType { genre, cast, director, producer, company, collection }
+
+enum _PersonCreditType { cast, crew }
 
 class TmdbApiService {
   static const String defaultBaseUrl = 'https://api.themoviedb.org/3';
@@ -324,6 +326,134 @@ class TmdbApiService {
       posterSize: _posterSize,
       backdropSize: _backdropSize,
       genreNames: _genreNames,
+    );
+  }
+
+  Future<MovieListResponse> getMoviesByFilter({
+    required TmdbFilterType filterType,
+    required String filterId,
+    int page = 1,
+  }) async {
+    final id = filterId.trim();
+    if (id.isEmpty) {
+      return const MovieListResponse(
+        movies: [],
+        pagination: Pagination(
+          currentPage: 1,
+          hasNextPage: false,
+          pages: [1],
+        ),
+      );
+    }
+
+    await _ensureConfiguration();
+    switch (filterType) {
+      case TmdbFilterType.genre:
+        return _discoverMoviesById(page: page, queryKey: 'with_genres', id: id);
+      case TmdbFilterType.company:
+        return _discoverMoviesById(
+          page: page,
+          queryKey: 'with_companies',
+          id: id,
+        );
+      case TmdbFilterType.cast:
+        return _getPersonMovieCredits(id, creditType: _PersonCreditType.cast);
+      case TmdbFilterType.director:
+        return _getPersonMovieCredits(
+          id,
+          creditType: _PersonCreditType.crew,
+          job: 'Director',
+        );
+      case TmdbFilterType.producer:
+        return _getPersonMovieCredits(
+          id,
+          creditType: _PersonCreditType.crew,
+          job: 'Producer',
+        );
+      case TmdbFilterType.collection:
+        return _getCollectionMovies(id);
+    }
+  }
+
+  Future<MovieListResponse> _discoverMoviesById({
+    required int page,
+    required String queryKey,
+    required String id,
+  }) async {
+    final queryParams = <String, String>{
+      'page': page.toString(),
+      'language': _language,
+      'include_adult': 'false',
+      'include_video': 'false',
+      queryKey: id,
+    };
+    if (_region.isNotEmpty) {
+      queryParams['region'] = _region;
+    }
+
+    final json = await _sendMap('/discover/movie', queryParams: queryParams);
+    return MovieListResponse.fromTmdbJson(
+      json,
+      imageBaseUrl: _imageBaseUrl,
+      posterSize: _posterSize,
+      backdropSize: _backdropSize,
+      genreNames: _genreNames,
+    );
+  }
+
+  Future<MovieListResponse> _getPersonMovieCredits(
+    String personId, {
+    required _PersonCreditType creditType,
+    String? job,
+  }) async {
+    final json = await _sendMap(
+      '/person/${Uri.encodeComponent(personId)}/movie_credits',
+      queryParams: {'language': _language},
+    );
+    final key = creditType == _PersonCreditType.cast ? 'cast' : 'crew';
+    final items = (json[key] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .where((item) => item['adult'] != true);
+    final filteredItems = job == null
+        ? items
+        : items.where((item) => (item['job'] as String?) == job);
+    return _movieListFromItems(filteredItems);
+  }
+
+  Future<MovieListResponse> _getCollectionMovies(String collectionId) async {
+    final json = await _sendMap(
+      '/collection/${Uri.encodeComponent(collectionId)}',
+      queryParams: {'language': _language},
+    );
+    final parts = (json['parts'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .where((item) => item['adult'] != true);
+    return _movieListFromItems(parts);
+  }
+
+  MovieListResponse _movieListFromItems(Iterable<Map<String, dynamic>> items) {
+    final byId = <String, TmdbMovie>{};
+    for (final item in items) {
+      final movie = TmdbMovie.fromJson(
+        item,
+        imageBaseUrl: _imageBaseUrl,
+        posterSize: _posterSize,
+        backdropSize: _backdropSize,
+        genreNames: _genreNames,
+      );
+      if (movie.id.isNotEmpty && movie.title.isNotEmpty) {
+        byId[movie.id] = movie;
+      }
+    }
+    final movies = byId.values.toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+    return MovieListResponse(
+      movies: movies,
+      pagination: const Pagination(
+        currentPage: 1,
+        hasNextPage: false,
+        pages: [1],
+      ),
     );
   }
 

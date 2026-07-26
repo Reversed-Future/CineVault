@@ -9,10 +9,12 @@ import 'tmdb_movie_detail_screen.dart';
 
 class TmdbSearchScreen extends ConsumerStatefulWidget {
   final String? initialKeyword;
+  final TmdbMovieListFilter? initialFilter;
 
   const TmdbSearchScreen({
     super.key,
     this.initialKeyword,
+    this.initialFilter,
   });
 
   @override
@@ -28,7 +30,8 @@ class _TmdbSearchScreenState extends ConsumerState<TmdbSearchScreen> {
   @override
   void initState() {
     super.initState();
-    _searchController.text = widget.initialKeyword ?? '';
+    _searchController.text =
+        widget.initialFilter?.label ?? widget.initialKeyword ?? '';
     _scrollController.addListener(_onScroll);
   }
 
@@ -52,6 +55,12 @@ class _TmdbSearchScreenState extends ConsumerState<TmdbSearchScreen> {
     if (_loadedInitial || !config.isConfigured) return;
     _loadedInitial = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      final movieFilter = widget.initialFilter;
+      if (movieFilter != null && movieFilter.isValid) {
+        ref.read(tmdbSearchProvider.notifier).loadByFilter(movieFilter);
+        return;
+      }
+
       final keyword = _searchController.text.trim();
       if (keyword.isEmpty) {
         ref.read(tmdbSearchProvider.notifier).loadPopular(page: 1);
@@ -116,7 +125,8 @@ class _TmdbSearchScreenState extends ConsumerState<TmdbSearchScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('TMDB'),
+        title: Text(
+            state.movieFilter?.title ?? widget.initialFilter?.title ?? 'TMDB'),
         actions: [
           IconButton(
             tooltip: '配置',
@@ -131,7 +141,33 @@ class _TmdbSearchScreenState extends ConsumerState<TmdbSearchScreen> {
       body: Column(
         children: [
           _buildSearchBar(),
+          if (state.movieFilter != null) _buildFilterBanner(state.movieFilter!),
           Expanded(child: _buildMovieGrid(state)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterBanner(TmdbMovieListFilter movieFilter) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.tag, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '${movieFilter.title}  ·  ID: ${movieFilter.id}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
     );
@@ -223,6 +259,12 @@ class _TmdbSearchScreenState extends ConsumerState<TmdbSearchScreen> {
 
     return RefreshIndicator(
       onRefresh: () {
+        if (state.movieFilter != null) {
+          return ref
+              .read(tmdbSearchProvider.notifier)
+              .loadByFilter(state.movieFilter!, page: 1);
+        }
+
         final keyword = state.keyword?.trim() ?? '';
         if (keyword.isEmpty) {
           return ref.read(tmdbSearchProvider.notifier).loadPopular(page: 1);

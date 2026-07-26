@@ -149,12 +149,44 @@ final tmdbSearchProvider =
   (ref) => TmdbSearchNotifier(ref),
 );
 
+class TmdbMovieListFilter {
+  final TmdbFilterType type;
+  final String id;
+  final String label;
+
+  const TmdbMovieListFilter({
+    required this.type,
+    required this.id,
+    required this.label,
+  });
+
+  bool get isValid => id.trim().isNotEmpty;
+
+  String get title {
+    switch (type) {
+      case TmdbFilterType.genre:
+        return 'TMDB 类型: $label';
+      case TmdbFilterType.cast:
+        return 'TMDB 演员: $label';
+      case TmdbFilterType.director:
+        return 'TMDB 导演: $label';
+      case TmdbFilterType.producer:
+        return 'TMDB 制片: $label';
+      case TmdbFilterType.company:
+        return 'TMDB 公司: $label';
+      case TmdbFilterType.collection:
+        return 'TMDB 系列: $label';
+    }
+  }
+}
+
 class TmdbSearchState {
   final List<TmdbMovie> movies;
   final bool isLoading;
   final String? error;
   final String? keyword;
   final String? year;
+  final TmdbMovieListFilter? movieFilter;
   final Pagination? pagination;
 
   const TmdbSearchState({
@@ -163,6 +195,7 @@ class TmdbSearchState {
     this.error,
     this.keyword,
     this.year,
+    this.movieFilter,
     this.pagination,
   });
 
@@ -172,6 +205,8 @@ class TmdbSearchState {
     String? error,
     String? keyword,
     String? year,
+    TmdbMovieListFilter? movieFilter,
+    bool clearMovieFilter = false,
     Pagination? pagination,
   }) {
     return TmdbSearchState(
@@ -180,6 +215,7 @@ class TmdbSearchState {
       error: error,
       keyword: keyword ?? this.keyword,
       year: year ?? this.year,
+      movieFilter: clearMovieFilter ? null : (movieFilter ?? this.movieFilter),
       pagination: pagination ?? this.pagination,
     );
   }
@@ -196,6 +232,7 @@ class TmdbSearchNotifier extends StateNotifier<TmdbSearchState> {
       error: null,
       keyword: keyword,
       year: year,
+      clearMovieFilter: true,
     );
 
     try {
@@ -219,7 +256,13 @@ class TmdbSearchNotifier extends StateNotifier<TmdbSearchState> {
   }
 
   Future<void> loadPopular({int page = 1}) async {
-    state = state.copyWith(isLoading: true, error: null);
+    state = state.copyWith(
+      isLoading: true,
+      error: null,
+      keyword: '',
+      year: '',
+      clearMovieFilter: true,
+    );
 
     try {
       final response = await ref.read(tmdbApiServiceProvider).getMovies(
@@ -239,6 +282,44 @@ class TmdbSearchNotifier extends StateNotifier<TmdbSearchState> {
     }
   }
 
+  Future<void> loadByFilter(
+    TmdbMovieListFilter movieFilter, {
+    int page = 1,
+  }) async {
+    if (!movieFilter.isValid) {
+      clear();
+      return;
+    }
+
+    state = state.copyWith(
+      isLoading: true,
+      error: null,
+      keyword: movieFilter.label,
+      year: null,
+      movieFilter: movieFilter,
+    );
+
+    try {
+      final response = await ref.read(tmdbApiServiceProvider).getMoviesByFilter(
+            filterType: movieFilter.type,
+            filterId: movieFilter.id,
+            page: page,
+          );
+      state = state.copyWith(
+        movies:
+            page == 1 ? response.movies : [...state.movies, ...response.movies],
+        pagination: response.pagination,
+        isLoading: false,
+        error: null,
+        movieFilter: movieFilter,
+      );
+    } on TmdbException catch (error) {
+      state = state.copyWith(isLoading: false, error: error.message);
+    } catch (error) {
+      state = state.copyWith(isLoading: false, error: '加载失败: $error');
+    }
+  }
+
   Future<void> loadMore() async {
     if (state.isLoading || state.pagination?.hasNextPage != true) {
       return;
@@ -246,6 +327,10 @@ class TmdbSearchNotifier extends StateNotifier<TmdbSearchState> {
 
     final nextPage =
         state.pagination?.nextPage ?? (state.pagination?.currentPage ?? 1) + 1;
+    if (state.movieFilter != null) {
+      await loadByFilter(state.movieFilter!, page: nextPage);
+      return;
+    }
     if (state.keyword != null && state.keyword!.trim().isNotEmpty) {
       await search(state.keyword!, year: state.year, page: nextPage);
       return;
@@ -299,7 +384,8 @@ class TmdbMovieDetailNotifier extends StateNotifier<TmdbMovieDetailState> {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
-      final movie = await ref.read(tmdbApiServiceProvider).getMovieDetail(movieId);
+      final movie =
+          await ref.read(tmdbApiServiceProvider).getMovieDetail(movieId);
       state = state.copyWith(movie: movie, isLoading: false, error: null);
     } on TmdbException catch (error) {
       state = state.copyWith(isLoading: false, error: error.message);
